@@ -2,6 +2,8 @@
 
 一个功能强大的瓦片地图下载工具，支持从 Google Maps 和 OpenStreetMap 下载地图瓦片，并自动拼接成完整的大图。
 
+📖 **[查看在线文档](https://casta-mere.github.io/TileMap/)** - GitHub Pages 文档站点
+
 ## 功能特性
 
 ✅ **Web 界面** - 提供友好的 Web 界面，可视化选择下载区域  
