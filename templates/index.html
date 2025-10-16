@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>瓦片地图下载工具</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .sidebar {
+            width: 400px;
+            background: white;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+        }
+        
+        .section h2 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #34495e;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        select, input[type="number"], input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .coord-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        
+        .btn-primary:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #2ecc71;
+            color: white;
+            margin-top: 10px;
+        }
+        
+        .btn-secondary:hover {
+            background: #27ae60;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            background: #ecf0f1;
+            display: none;
+        }
+        
+        .status.active {
+            display: block;
+        }
+        
+        .status.success {
+            background: #d5f4e6;
+            border-left: 4px solid #2ecc71;
+        }
+        
+        .status.error {
+            background: #fadbd8;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .status.running {
+            background: #d6eaf8;
+            border-left: 4px solid #3498db;
+        }
+        
+        .progress-info {
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        
+        .leaflet-draw-toolbar {
+            display: none;
+        }
+        
+        .instruction {
+            padding: 10px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            margin-bottom: 15px;
+            font-size: 13px;
+            border-radius: 4px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>🗺️ 瓦片地图下载工具</h1>
+            
+            <div class="instruction">
+                💡 在地图上点击两个点选择下载区域，或使用预设区域
+            </div>
+            
+            <div class="section">
+                <h2>1. 选择区域</h2>
+                <div class="form-group">
+                    <label>预设区域：</label>
+                    <select id="preset-select">
+                        <option value="">-- 自定义区域 --</option>
+                        {% for country, cities in area_presets.items() %}
+                            {% for city_id, city_data in cities.items() %}
+                                <option value="{{ city_id }}">{{ city_data.name }}</option>
+                            {% endfor %}
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>自定义坐标：</label>
+                    <div class="coord-group">
+                        <div>
+                            <input type="number" id="lat1" placeholder="纬度1" step="0.0001">
+                        </div>
+                        <div>
+                            <input type="number" id="lon1" placeholder="经度1" step="0.0001">
+                        </div>
+                        <div>
+                            <input type="number" id="lat2" placeholder="纬度2" step="0.0001">
+                        </div>
+                        <div>
+                            <input type="number" id="lon2" placeholder="经度2" step="0.0001">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>2. 选择层级</h2>
+                <div class="form-group">
+                    <label>最小缩放层级 (0-19)：</label>
+                    <input type="number" id="zoom-min" min="0" max="19" value="10">
+                </div>
+                <div class="form-group">
+                    <label>最大缩放层级 (0-19)：</label>
+                    <input type="number" id="zoom-max" min="0" max="19" value="12">
+                </div>
+                <small style="color: #666;">提示：层级越高，图片越详细，但下载的瓦片数量指数增长</small>
+            </div>
+            
+            <div class="section">
+                <h2>3. 地图样式</h2>
+                <div class="form-group">
+                    <label>样式：</label>
+                    <select id="style-select">
+                        {% for style_id, style_url in styles.items() %}
+                            <option value="{{ style_id }}">{{ style_id }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>4. 其他选项</h2>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="stitch-checkbox" checked>
+                    <label for="stitch-checkbox" style="margin: 0;">自动拼接最大层级的图片</label>
+                </div>
+            </div>
+            
+            <button class="btn btn-primary" id="download-btn">开始下载</button>
+            
+            <div class="status" id="status">
+                <div id="status-text"></div>
+                <div class="progress-info" id="progress-info"></div>
+            </div>
+            
+            <button class="btn btn-secondary" id="download-image-btn" style="display:none;">下载拼接图片</button>
+        </div>
+        
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([39.9, 116.4], 11);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        let markers = [];
+        let rectangle = null;
+        
+        // Area presets data
+        const presets = {{ area_presets | tojson }};
+        
+        // Handle preset selection
+        document.getElementById('preset-select').addEventListener('change', function(e) {
+            const presetId = e.target.value;
+            if (!presetId) return;
+            
+            // Find preset in nested structure
+            let preset = null;
+            for (const country in presets) {
+                if (presets[country][presetId]) {
+                    preset = presets[country][presetId];
+                    break;
+                }
+            }
+            
+            if (preset) {
+                const bounds = preset.bounds;
+                document.getElementById('lat1').value = bounds.lat1;
+                document.getElementById('lon1').value = bounds.lon1;
+                document.getElementById('lat2').value = bounds.lat2;
+                document.getElementById('lon2').value = bounds.lon2;
+                
+                updateMapSelection();
+            }
+        });
+        
+        // Handle map clicks
+        map.on('click', function(e) {
+            const lat = e.latlng.lat.toFixed(4);
+            const lng = e.latlng.lng.toFixed(4);
+            
+            if (markers.length < 2) {
+                const marker = L.marker([lat, lng]).addTo(map);
+                markers.push(marker);
+                
+                if (markers.length === 1) {
+                    document.getElementById('lat1').value = lat;
+                    document.getElementById('lon1').value = lng;
+                } else {
+                    document.getElementById('lat2').value = lat;
+                    document.getElementById('lon2').value = lng;
+                    updateMapSelection();
+                }
+            } else {
+                // Reset
+                markers.forEach(m => map.removeLayer(m));
+                markers = [];
+                if (rectangle) {
+                    map.removeLayer(rectangle);
+                    rectangle = null;
+                }
+                
+                const marker = L.marker([lat, lng]).addTo(map);
+                markers.push(marker);
+                document.getElementById('lat1').value = lat;
+                document.getElementById('lon1').value = lng;
+                document.getElementById('lat2').value = '';
+                document.getElementById('lon2').value = '';
+            }
+        });
+        
+        function updateMapSelection() {
+            const lat1 = parseFloat(document.getElementById('lat1').value);
+            const lon1 = parseFloat(document.getElementById('lon1').value);
+            const lat2 = parseFloat(document.getElementById('lat2').value);
+            const lon2 = parseFloat(document.getElementById('lon2').value);
+            
+            if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+                if (rectangle) {
+                    map.removeLayer(rectangle);
+                }
+                
+                rectangle = L.rectangle([[lat1, lon1], [lat2, lon2]], {
+                    color: '#3498db',
+                    weight: 2,
+                    fillOpacity: 0.2
+                }).addTo(map);
+                
+                map.fitBounds(rectangle.getBounds());
+            }
+        }
+        
+        // Handle coordinate input changes
+        ['lat1', 'lon1', 'lat2', 'lon2'].forEach(id => {
+            document.getElementById(id).addEventListener('change', updateMapSelection);
+        });
+        
+        // Handle download button
+        let currentTaskId = null;
+        
+        document.getElementById('download-btn').addEventListener('click', async function() {
+            const lat1 = parseFloat(document.getElementById('lat1').value);
+            const lon1 = parseFloat(document.getElementById('lon1').value);
+            const lat2 = parseFloat(document.getElementById('lat2').value);
+            const lon2 = parseFloat(document.getElementById('lon2').value);
+            const zoomMin = parseInt(document.getElementById('zoom-min').value);
+            const zoomMax = parseInt(document.getElementById('zoom-max').value);
+            const style = document.getElementById('style-select').value;
+            const stitch = document.getElementById('stitch-checkbox').checked;
+            
+            if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) {
+                alert('请选择或输入有效的坐标！');
+                return;
+            }
+            
+            if (isNaN(zoomMin) || isNaN(zoomMax) || zoomMin > zoomMax) {
+                alert('请输入有效的缩放层级！');
+                return;
+            }
+            
+            // Disable button
+            this.disabled = true;
+            
+            // Show status
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status active running';
+            document.getElementById('status-text').textContent = '正在下载中...';
+            document.getElementById('progress-info').textContent = '请稍候，这可能需要几分钟时间';
+            document.getElementById('download-image-btn').style.display = 'none';
+            
+            try {
+                // Start download
+                const response = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        lat1, lon1, lat2, lon2,
+                        zoom_min: zoomMin,
+                        zoom_max: zoomMax,
+                        style,
+                        stitch
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentTaskId = data.task_id;
+                    checkStatus();
+                } else {
+                    throw new Error(data.error || '下载失败');
+                }
+                
+            } catch (error) {
+                statusDiv.className = 'status active error';
+                document.getElementById('status-text').textContent = '错误：' + error.message;
+                this.disabled = false;
+            }
+        });
+        
+        function checkStatus() {
+            if (!currentTaskId) return;
+            
+            fetch(`/api/status/${currentTaskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const statusDiv = document.getElementById('status');
+                    
+                    if (data.status === 'completed') {
+                        statusDiv.className = 'status active success';
+                        document.getElementById('status-text').textContent = '✓ 下载完成！';
+                        
+                        if (data.results) {
+                            document.getElementById('progress-info').innerHTML = 
+                                `总瓦片数: ${data.results.total_tiles}<br>` +
+                                `成功下载: ${data.results.downloaded}<br>` +
+                                `失败: ${data.results.failed}`;
+                        }
+                        
+                        if (data.stitched_image) {
+                            document.getElementById('download-image-btn').style.display = 'block';
+                        }
+                        
+                        document.getElementById('download-btn').disabled = false;
+                        
+                    } else if (data.status === 'failed') {
+                        statusDiv.className = 'status active error';
+                        document.getElementById('status-text').textContent = '✗ 下载失败';
+                        document.getElementById('progress-info').textContent = data.error || '未知错误';
+                        document.getElementById('download-btn').disabled = false;
+                        
+                    } else {
+                        // Still running
+                        setTimeout(checkStatus, 2000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Status check error:', error);
+                    setTimeout(checkStatus, 2000);
+                });
+        }
+        
+        document.getElementById('download-image-btn').addEventListener('click', function() {
+            if (currentTaskId) {
+                window.location.href = `/api/download_image/${currentTaskId}`;
+            }
+        });
+    </script>
+</body>
+</html>
